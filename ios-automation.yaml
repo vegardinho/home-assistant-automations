@@ -1,0 +1,75 @@
+blueprint:
+  name: iOS actions
+  description: "Custom iOS action automation"
+  domain: automation
+  input:
+    scene_list:
+      name: Scene list
+      description: List of scenes.
+      selector:
+        entity:
+          domain: input_select
+    light_entity:
+      name: Light entity
+      description: ""
+      selector:
+        entity:
+          domain: light
+    search:
+      name: Search term
+      description: Search for identifying action trigger
+      selector:
+        text:
+trigger:
+  - platform: event
+    event_type: ios.action_fired
+variables:
+  actionID: "{{ trigger.event.data.actionID }}"
+  search: !input search
+condition:
+  - condition: template
+    value_template: "{{ search in actionID }}"
+#TODO: let user input entities for both stue and vegards-soverom. Check if trigger name contains
+#these names, and set variables for scene-list and light-entity based on this.
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ 'toggle' in actionID }}"
+        sequence:
+          - service: script.custom_toggle
+            metadata: {}
+            data:
+              scene_list: !input scene_list
+              light_entity: !input light_entity
+      - conditions:
+          - condition: template
+            value_template: "{{ 'dim-ned' in actionID }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light_entity
+            data:
+              brightness_step_pct: -15
+              transition: 1
+      - conditions:
+          - condition: template
+            value_template: "{{ 'dim-opp' in actionID }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light_entity
+            data:
+              brightness_step_pct: 15
+              transition: 1
+      - conditions:
+        - condition: template
+          value_template: "{{ 'scene' in actionID }}"
+        sequence:
+        - service: script.aktiver_neste_scene
+          metadata: {}
+          data:
+            scene_list: !input scene_list
+            previous: "{{ 'forrige' in actionID }}"
+mode: parallel
+max: 10

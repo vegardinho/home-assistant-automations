@@ -1,0 +1,142 @@
+blueprint:
+  name: Controller - Shelly Dimmer 2
+  description: "Controller for Shelly Dimmer 2"
+  source_url: https://github.com/vegardinho/home-assistant-automations/blob/main/shelly-automation.yaml
+  domain: automation
+  input:
+    shelly_device:
+      name: Shelly device
+      description: Shelly device to trigger automation.
+      selector:
+        device:
+          integration: shelly
+          multiple: false
+    channel_sensor_1:
+      name: Channel sensor 1
+      description: Sensor for shelly device labelled '1'.
+      default: ''
+      selector:
+        entity:
+          domain: binary_sensor
+    channel_sensor_2:
+      name: Channel sensor 2
+      description: Sensor for shelly device labelled '2'.
+      default: ''
+      selector:
+        entity:
+          domain: binary_sensor
+    light_entity: 
+      name: Light
+      description: Light entity to be manipulated by automation.
+      selector:
+        entity:
+          domain: light
+    scene_selector:
+      name: Scene selector
+      description: List of scenes.
+      selector:
+        entity:
+          domain: input_select
+    dimmer_helper:
+      name: Dimmer helper
+      description: Text helper for storing and reading actions.
+      selector:
+        entity:
+          domain: input_text
+    double_click_helper:
+      name: Double click delay
+      description: Helper for determining time to look for double click, in milliseconds.
+      selector:
+        entity:
+          domain: input_number
+mode: single
+trigger:
+- platform: event
+  event_type: shelly.click
+  event_data: 
+    device_id: !input shelly_device
+action:
+- variables:
+    event: '{{ trigger.event.data }}'
+    event_type: '{{ event.click_type }}'
+    direction: '{{ "clockwise" if event.channel == 1 else "counter-clockwise" }}'
+    light_entity: !input light_entity
+    double_click_delay: !input double_click_helper
+# TODO: currently, only the button triggers work. Assume binary sensor would be quicker.
+- choose:
+  - conditions:
+    - '{{ event_type == "single" }}'
+    sequence:
+        - wait_for_trigger:
+          - type: powered
+            platform: device
+            device_id: !input shelly_device
+            entity_id: !input channel_sensor_1 
+            domain: binary_sensor
+          - type: powered
+            platform: device
+            device_id: !input shelly_device
+            entity_id: !input channel_sensor_2 
+            domain: binary_sensor
+          - platform: device
+            device_id: !input shelly_device
+            domain: shelly
+            type: single
+            subtype: button1
+          - platform: device
+            device_id: !input shelly_device
+            domain: shelly
+            type: single
+            subtype: button2
+          timeout:
+            milliseconds: "{{ double_click_delay | float(500) }}" 
+          continue_on_timeout: true
+        - if:
+            - condition: template
+              value_template: "{{  wait.trigger == none }}"
+          then:
+            - service: script.custom_toggle
+              metadata: {}
+              data:
+                scene_list: !input scene_selector
+                light_entity: !input light_entity
+          else:
+            - service: script.aktiver_neste_scene
+              metadata: {}
+              data:
+                previous: false
+                scene_list: !input scene_selector
+  - conditions:
+    - '{{ event_type == "long" }}'
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: !input dimmer_helper
+        data:
+          value: >-
+            {% if direction == "clockwise" %}
+            {% set state = 1 %}
+            {% elif direction == "counter-clockwise" %}
+            {% set state = -1 %}
+            {% endif %}
+            {% set dict = {"light_entity": light_entity,
+            "trigger_state": state} %}
+            {{ dict | to_json }}
+      - wait_for_trigger:
+          - type: not_powered
+            platform: device
+            device_id: !input shelly_device
+            entity_id: !input channel_sensor_1
+            domain: binary_sensor
+          - type: not_powered
+            platform: device
+            device_id: !input shelly_device
+            entity_id: !input channel_sensor_2
+            domain: binary_sensor
+      - service: input_text.set_value
+        target:
+          entity_id: !input dimmer_helper
+        data:
+          value: >-
+            {% set dict = {"light_entity": light_entity, "trigger_state": 0}
+             %}{{ dict | to_json }}

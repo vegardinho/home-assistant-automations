@@ -1,0 +1,58 @@
+blueprint:
+  name: Vegard automatisk scenejustering
+  description: "Vegard automatisk scenejustering"
+  domain: automation
+  input:
+    calendar:
+      name: Calendar
+      description: Calendar where light actions are stored.
+      selector:
+        entity:
+          domain: calendar
+    scene_selector:
+      name: Scene selector
+      description: List of scenes.
+      selector:
+        entity:
+          domain: input_select
+    light_entity:
+      name: Light entity
+      description: ""
+      selector:
+        entity:
+          domain: light
+    auto_shift:
+      name: Auto shift
+      description: If disabled, scene selection is updated, but is not applied to active lights
+      selector:
+        boolean:
+variables:
+  light_entity: !input light_entity
+  transition: >-
+    {% set seconds = int(states('input_number.transition_auto_scene')) * 60 %}{{ seconds }}
+trigger:
+  - platform: calendar
+    event: start
+    entity_id: !input calendar
+condition: []
+action:
+  - if:
+      - condition: template
+        value_template: "{{ states(light_entity) == 'on' }}"
+    then:
+      - service: script.aktiver_neste_scene
+        metadata: {}
+        data:
+          scene_list: !input scene_selector
+          scene: "{{ trigger.calendar_event.summary }}"
+          activate_scene: !input auto_shift
+          transition: "{{ transition }}"
+    else:
+      - service: script.aktiver_neste_scene
+        metadata: {}
+        data:
+          scene_list: !input scene_selector
+          scene: "{{ trigger.calendar_event.summary }}"
+          activate_scene: false
+mode: parallel
+max: 10
