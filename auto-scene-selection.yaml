@@ -30,29 +30,19 @@ variables:
   light_entity: !input light_entity
   transition: >-
     {% set seconds = int(states('input_number.transition_auto_scene')) * 60 %}{{ seconds }}
+  turn_on_scene: !input auto_shift
 trigger:
   - platform: calendar
     event: start
     entity_id: !input calendar
 condition: []
 action:
-  - if:
-      - condition: template
-        value_template: "{{ states(light_entity) == 'on' }}"
-    then:
-      - service: script.aktiver_neste_scene
-        metadata: {}
-        data:
-          scene_list: !input scene_selector
-          scene: "{{ trigger.calendar_event.summary }}"
-          activate_scene: !input auto_shift
-          transition: "{{ transition }}"
-    else:
-      - service: script.aktiver_neste_scene
-        metadata: {}
-        data:
-          scene_list: !input scene_selector
-          scene: "{{ trigger.calendar_event.summary }}"
-          activate_scene: false
+  - service: script.aktiver_neste_scene
+    metadata: {}
+    data:
+      scene_list: !input scene_selector
+      scene: "{{ trigger.calendar_event.summary }}"
+      activate_scene: "{{ turn_on_scene and (states(light_entity) == 'on') }}"
+      transition: "{{ transition }}"
 mode: parallel
 max: 10
