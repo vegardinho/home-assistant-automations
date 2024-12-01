@@ -1,0 +1,83 @@
+blueprint:
+  name: Morgendimming
+  description: "Script for gradually dimming lights"
+  domain: automation
+  input:
+    start_scene:
+      name: Start scene
+      description: Scene to gradually brighten. Typically minimum brightness and blue color.
+      selector:
+        entity:
+          domain: scene
+    light_entity:
+      name: Light entity
+      description: ""
+      selector:
+        entity:
+          domain: light
+    start_trigger:
+      name: Start trigger
+      description: Entity that triggers start of automation.
+      selector:
+        entity: 
+          domain: input_datetime
+    alarm_entity:
+      name: Alarm start
+      description: Entity with time for end of automation.
+      selector:
+        entity:
+          domain: input_datetime           
+    device_tracker:
+      name: Device tracker
+      description: Device that must be 'home' for automation to run.
+      selector:
+        entity:
+          domain: device_tracker
+    sub_trans_sec:
+      name: Sub-division lenght
+      description: "Length of each sub-transition in seconds."
+      default: 60
+      selector:
+        number:
+variables:
+  start_trigger: !input start_trigger
+  alarm_entity: !input alarm_entity
+  sub_trans_sec: !input sub_trans_sec
+  light_entity: !input light_entity
+  tot_trans_sec: >-
+    {% set start_time = start_trigger | as_timestamp %}
+    {% set end_time = alarm_entity | as_timestamp %}
+    {{ end_time - start_time }}
+  tot_trans_min: "{{ tot_trans_sec // 60 | int }}"
+  dim_step: "{{ (sub_trans_sec / dim_length_sec) * 100 | float }}"
+mode: restart
+triggers:
+  - at: !input start_trigger
+    enabled: true
+    trigger: time
+conditions:
+  - condition: zone
+    entity_id: !input device_tracker
+    zone: zone.home
+actions:
+  - metadata: {}
+    target:
+      entity_id: !input start_scene
+    enabled: true
+    action: scene.turn_on
+  - repeat:
+      sequence:
+        - metadata: {}
+          data:
+            transition: "{{ sub_trans_sec }}"
+            brightness_step_pct: "{{ dim_step }}"
+          target:
+            entity_id: !input light_entity
+          action: light.turn_on
+        - delay: "{{ transition\_}}"
+      while:
+        - condition: template
+          value_template: >-
+            {% set brightness = state_attr( 'light_entity',
+            'brightness') | int(0) %} {{ brightness >= 0 and brightness < 255 }}
+    enabled: true
