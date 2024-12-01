@@ -95,11 +95,9 @@ action:
             - condition: template
               value_template: "{{  wait.trigger == none }}"
           then:
-            - service: script.custom_toggle
+            - service: script.stue_toggle_auto_set_scene
               metadata: {}
-              data:
-                scene_list: !input scene_selector
-                light_entity: !input light_entity
+              data: {}
           else:
             - service: script.aktiver_neste_scene
               metadata: {}
