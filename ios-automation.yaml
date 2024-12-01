@@ -20,12 +20,19 @@ blueprint:
       description: Search for identifying action trigger
       selector:
         text:
+    toggle_action:
+      name: Toggle action
+      description: Optional action for toggle which overrides default.
+      default: 
+      selector:
+        action:
 trigger:
   - platform: event
     event_type: ios.action_fired
 variables:
   actionID: "{{ trigger.event.data.actionID }}"
   search: !input search
+  toggle_action: !input toggle_action
 condition:
   - condition: template
     value_template: "{{ search in actionID }}"
@@ -37,11 +44,17 @@ action:
           - condition: template
             value_template: "{{ 'toggle' in actionID }}"
         sequence:
-          - service: script.custom_toggle
-            metadata: {}
-            data:
-              scene_list: !input scene_list
-              light_entity: !input light_entity
+          - if:
+            - condition: template
+              value_template: '{{ toggle_action != null }}'
+            then:
+              !input toggle_action
+            else: 
+              - service: script.custom_toggle
+                metadata: {}
+                data:
+                  scene_list: !input scene_list
+                  light_entity: !input light_entity
       - conditions:
           - condition: template
             value_template: "{{ 'dim-ned' in actionID }}"
