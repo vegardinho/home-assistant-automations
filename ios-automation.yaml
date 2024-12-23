@@ -46,9 +46,8 @@ action:
         sequence:
           - if:
             - condition: template
-              value_template: '{{ toggle_action != null }}'
-            then:
-              !input toggle_action
+              value_template: '{{ toggle_action != none }}'
+            then: !input toggle_action
             else: 
               - service: script.custom_toggle
                 metadata: {}

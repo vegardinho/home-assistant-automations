@@ -15,12 +15,12 @@ blueprint:
       selector:
         entity:
           domain: light
-    start_trigger:
-      name: Start trigger
-      description: Entity that triggers start of automation.
-      selector:
-        entity: 
-          domain: input_datetime
+    # start_trigger:
+    #   name: Start trigger
+    #   description: Entity that triggers start of automation.
+    #   selector:
+    #     entity: 
+    #       domain: input_datetime
     alarm_entity:
       name: Alarm start
       description: Entity with time for end of automation.
@@ -30,35 +30,73 @@ blueprint:
     device_tracker:
       name: Device tracker
       description: Device that must be 'home' for automation to run.
+      default:
       selector:
         entity:
           domain: device_tracker
-    sub_trans_sec:
-      name: Sub-division lenght
-      description: "Length of each sub-transition in seconds."
+    device_wifi:
+      name: Device WiFi (SSID)
+      description: Enitity for wifi network connected to device.
+      selector:
+        entity:
+            domain: sensor
+    home_wifi:
+      name: Home WiFi
+      description: Name of home network
+      default: Blue Train
+      selector:
+        text:
+    transition_length:
+      name: Dim length
+      description: Number of minutes before alarm to start dimming.
       default: 60
       selector:
         number:
 variables:
-  start_trigger: !input start_trigger
+  # start_trigger: !input start_trigger
+  transition_length: !input transition_length
   alarm_entity: !input alarm_entity
-  sub_trans_sec: !input sub_trans_sec
   light_entity: !input light_entity
+  device_wifi: !input device_wifi
+  home_wifi: !input home_wifi
+  sub_trans_sec: 60
   tot_trans_sec: >-
-    {% set start_time = start_trigger | as_timestamp %}
-    {% set end_time = alarm_entity | as_timestamp %}
-    {{ end_time - start_time }}
+    {% set start_time = now().strftime('%H:%M:%S') | as_timedelta %}
+    {% set end_time = states(alarm_entity) | as_timedelta %}
+    {{ (end_time - start_time).seconds }}
   tot_trans_min: "{{ tot_trans_sec // 60 | int }}"
-  dim_step: "{{ (sub_trans_sec / dim_length_sec) * 100 | float }}"
+  dim_step: "{{ (sub_trans_sec / tot_trans_sec) * 255 | float }}"
+  repeats: "{{ (tot_trans_sec // sub_trans_sec) + 1}}"
+  lim_start: >-
+    {{ as_timedelta(states('input_datetime.telefonalarm')) -
+    timedelta(minutes=(transition_length)) }}
+  lim_end: >-
+    {{ as_timedelta(states('input_datetime.telefonalarm')) -
+    timedelta(minutes=(transition_length-1)) }}
+  lim_start_seconds: "{{ as_timedelta(lim_start).seconds }}"
+  lim_end_seconds: "{{ as_timedelta(lim_end).seconds }}"
+  now_seconds: "{{ as_timedelta(now().strftime('%H:%M:%S')).seconds }}"
 mode: restart
 triggers:
-  - at: !input start_trigger
-    enabled: true
-    trigger: time
+  # - at: input_datetime.dimmetidspunkt_morgen
+  #   enabled: true
+  #   trigger: time
+  - trigger: time_pattern
+    minutes: /1
 conditions:
-  - condition: zone
-    entity_id: !input device_tracker
-    zone: zone.home
+  - condition: template
+    value_template: >-
+      {{ as_timedelta(lim_start).seconds <=
+      as_timedelta(now().strftime('%H:%M:%S')).seconds <
+      as_timedelta(lim_end).seconds }}
+  - condition: or
+    conditions:
+      - condition: zone
+        entity_id: !input device_tracker
+        zone: zone.home
+      - condition: template
+        value_template: >-
+         {{ home_wifi == states(device_wifi) }}
 actions:
   - metadata: {}
     target:
@@ -69,15 +107,21 @@ actions:
       sequence:
         - metadata: {}
           data:
-            transition: "{{ sub_trans_sec }}"
-            brightness_step_pct: "{{ dim_step }}"
+            transition: "{{ sub_trans_sec - 1}}" # Leave safety margin
+            # brightness_step_pct: "{{ dim_step }}"
+            brightness: "{{ (repeat.index) * dim_step }}" # More fail safe than increases
           target:
             entity_id: !input light_entity
           action: light.turn_on
-        - delay: "{{ transition\_}}"
-      while:
+        - delay: "{{ sub_trans_sec }}" 
+      until:
         - condition: template
-          value_template: >-
-            {% set brightness = state_attr( 'light_entity',
-            'brightness') | int(0) %} {{ brightness >= 0 and brightness < 255 }}
+          value_template: "{{ (repeat.index - 1) * dim_step > 100 }}"
+          
+        #   value_template: >- # Check if full brightness, or if someone has changed the brightness outside automation
+        #     {% set finished = false %} 
+        #     {% set entity_brightness = state_attr(light_entity, 'brightness') %}
+        #     {% if (entity_brightness >= 255) or (repeat.index > 1 and (entity_brightness > 3) and (entity_brightness != (repeat.index - 1) * dim_step)) %}
+        #     {% set finished = true %}{% endif %}
+        #     {{ finished }}
     enabled: true
