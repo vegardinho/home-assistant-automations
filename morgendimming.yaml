@@ -15,12 +15,12 @@ blueprint:
       selector:
         entity:
           domain: light
-    # start_trigger:
-    #   name: Start trigger
-    #   description: Entity that triggers start of automation.
-    #   selector:
-    #     entity: 
-    #       domain: input_datetime
+    start_trigger:
+      name: Start trigger
+      description: Entity that triggers start of automation.
+      selector:
+        entity: 
+          domain: input_datetime
     alarm_entity:
       name: Alarm start
       description: Entity with time for end of automation.
@@ -47,13 +47,14 @@ blueprint:
       selector:
         text:
     transition_length:
-      name: Dim length
+      name: Dim length (minutes)
       description: Number of minutes before alarm to start dimming.
       default: 60
       selector:
         number:
 variables:
   # start_trigger: !input start_trigger
+  # device_tracker: !input device_tracker
   transition_length: !input transition_length
   alarm_entity: !input alarm_entity
   light_entity: !input light_entity
@@ -67,61 +68,76 @@ variables:
   tot_trans_min: "{{ tot_trans_sec // 60 | int }}"
   dim_step: "{{ (sub_trans_sec / tot_trans_sec) * 255 | float }}"
   repeats: "{{ (tot_trans_sec // sub_trans_sec) + 1}}"
-  lim_start: >-
-    {{ as_timedelta(states('input_datetime.telefonalarm')) -
-    timedelta(minutes=(transition_length)) }}
-  lim_end: >-
-    {{ as_timedelta(states('input_datetime.telefonalarm')) -
-    timedelta(minutes=(transition_length-1)) }}
-  lim_start_seconds: "{{ as_timedelta(lim_start).seconds }}"
-  lim_end_seconds: "{{ as_timedelta(lim_end).seconds }}"
-  now_seconds: "{{ as_timedelta(now().strftime('%H:%M:%S')).seconds }}"
-mode: restart
+  trigger_type: '{{ trigger.platform }}'
+mode: parallel
 triggers:
-  # - at: input_datetime.dimmetidspunkt_morgen
-  #   enabled: true
-  #   trigger: time
-  - trigger: time_pattern
-    minutes: /1
-conditions:
-  - condition: template
-    value_template: >-
-      {{ as_timedelta(lim_start).seconds <=
-      as_timedelta(now().strftime('%H:%M:%S')).seconds <
-      as_timedelta(lim_end).seconds }}
-  - condition: or
-    conditions:
-      - condition: zone
-        entity_id: !input device_tracker
-        zone: zone.home
-      - condition: template
-        value_template: >-
-         {{ home_wifi == states(device_wifi) }}
+  - at: !input start_trigger
+    trigger: time
+  - entity_id:
+    - !input alarm_entity
+    trigger: state
 actions:
-  - metadata: {}
-    target:
-      entity_id: !input start_scene
-    enabled: true
-    action: scene.turn_on
-  - repeat:
-      sequence:
-        - metadata: {}
-          data:
-            transition: "{{ sub_trans_sec - 1}}" # Leave safety margin
-            # brightness_step_pct: "{{ dim_step }}"
-            brightness: "{{ (repeat.index) * dim_step }}" # More fail safe than increases
-          target:
-            entity_id: !input light_entity
-          action: light.turn_on
-        - delay: "{{ sub_trans_sec }}" 
-      until:
-        - condition: template
-          value_template: "{{ (repeat.index - 1) * dim_step > 100 }}"
-          
-        #   value_template: >- # Check if full brightness, or if someone has changed the brightness outside automation
-        #     {% set finished = false %} 
-        #     {% set entity_brightness = state_attr(light_entity, 'brightness') %}
-        #     {% if (entity_brightness >= 255) or (repeat.index > 1 and (entity_brightness > 3) and (entity_brightness != (repeat.index - 1) * dim_step)) %}
-        #     {% set finished = true %}{% endif %}
-        #     {{ finished }}
-    enabled: true
+- if: 
+  - condition: template
+    value_template: "{{ trigger_type == 'state'}}" # Hvis utløst av endring av dimmetidspunkt
+  then:
+    sequence:
+      - data:
+          time: >
+            {## Convert minutes to seconds. ##} {% set dimtime_stamp =
+            transition_length * 60 %} {% set
+            alarm_stamp = state_attr(alarm_entity, "timestamp") %}
+            {## Convert to time format, and keep original time zone. ##} {{
+            (alarm_stamp - dimtime_stamp) | timestamp_custom("%H:%M", false) }} 
+        target:
+          entity_id: !input start_trigger
+        action: input_datetime.set_datetime
+- if:
+  - condition: and
+    conditions:
+      - condition: template
+        value_template: "{{ trigger_type == 'time' }}"
+      - condition: or
+        conditions:
+          - condition: zone
+            entity_id: !input device_tracker
+            zone: zone.home
+          - condition: template
+            value_template: "{{ 2 == 2 }}"
+            # value_template: "{{ home_wifi == states(device_wifi) }}"
+  then:
+    - metadata: {}
+      target:
+        entity_id: !input start_scene
+      action: scene.turn_on
+    - repeat:
+        sequence:
+            - metadata: {}
+              data:
+                transition: "{{ sub_trans_sec - 1}}" # Leave safety margin
+                # brightness_step_pct: "{{ dim_step }}"
+                brightness: "{{ (repeat.index) * dim_step }}" # More fail safe than increases
+              target:
+                entity_id: !input light_entity
+              action: light.turn_on
+            - delay: "{{ sub_trans_sec }}" 
+            # - action: logbook.log
+            #   metadata: {}
+            #   data:
+            #     entity_id: automation.vegard_morgendimming
+            #     message: "{{ state_attr(light_entity, 'brightness') }}"
+            #     name: state_attr(light_entity, 'brightness')
+            # - action: logbook.log
+            #   metadata: {}
+            #   data:
+            #     entity_id: automation.vegard_morgendimming
+            #     message: "{{ repeat.index * dim_step }}"
+            #     name: repeat.index * dim_step
+        until:
+            - condition: template
+              value_template: >- # Check if full brightness, or if someone has changed the brightness outside automation
+                {% set finished = false %} 
+                {% set entity_brightness = state_attr(light_entity, 'brightness') %}
+                {% if (entity_brightness >= 255) or (repeat.index > 1 and (entity_brightness > 3) and (entity_brightness != (repeat.index * dim_step // 1))) %}
+                {% set finished = true %}{% endif %}
+                {{ finished }}
